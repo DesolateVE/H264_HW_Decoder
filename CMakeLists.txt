@@ -14,17 +14,22 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 # 查找FFmpeg包
 find_package(FFMPEG REQUIRED)
 
-# 源文件
-set(SOURCES
-    src/main.cpp
+# 源文件 (重构版本)
+set(SOURCES_REFACTORED
+    src/main_refactored.cpp
+    src/D3D11Renderer.cpp
 )
 
-# 头文件
-set(HEADERS
+# 头文件 (重构版本)
+set(HEADERS_REFACTORED
+    src/D3D11Renderer.h
+    src/D3D11ShaderRenderer.h
+    src/D3D11VideoProcessorRenderer.h
+    src/FFmpegDecoder.h
 )
 
-# 创建可执行文件 (Windows窗口程序)
-add_executable(${PROJECT_NAME} WIN32 ${SOURCES} ${HEADERS})
+# 创建可执行文件 (控制台程序) - 使用重构版本
+add_executable(${PROJECT_NAME} ${SOURCES_REFACTORED} ${HEADERS_REFACTORED})
 
 # 定义Unicode宏
 target_compile_definitions(${PROJECT_NAME} PRIVATE
