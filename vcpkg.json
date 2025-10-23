@@ -1,6 +1,13 @@
 {
-  "dependencies": [
-    "ffmpeg",
-    "sdl3"
-  ]
+    "dependencies": [
+        "ffmpeg",
+        "sdl3",
+        {
+            "name": "imgui",
+            "features": [
+                "dx11-binding",
+                "sdl3-binding"
+            ]
+        }
+    ]
 }

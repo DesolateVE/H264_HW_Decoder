@@ -111,8 +111,13 @@ public:
         if (!CreateShaderResourceViews(srvY, srvUV))
             return;
 
-        // Render
+        // Render (don't present yet, ImGui will render on top)
         RenderToScreen(srvY.Get(), srvUV.Get());
+    }
+
+    void Present() override
+    {
+        swapChain->Present(1, 0);
     }
 
     ID3D11Device *GetDevice() override { return device.Get(); }
@@ -334,10 +339,7 @@ private:
         // Draw
         context->Draw(4, 0);
 
-        // Present
-        swapChain->Present(1, 0);
-
-        // Cleanup
+        // Cleanup (don't present here, will be called separately)
         ID3D11ShaderResourceView *nullSRVs[] = {nullptr, nullptr};
         context->PSSetShaderResources(0, 2, nullSRVs);
     }

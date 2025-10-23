@@ -2,6 +2,9 @@
 #include <iostream>
 #include <string>
 #include <SDL3/SDL.h>
+#include <imgui.h>
+#include <imgui_impl_sdl3.h>
+#include <imgui_impl_dx11.h>
 #include "D3D11Renderer.h"
 #include "FFmpegDecoder.h"
 
@@ -74,6 +77,19 @@ int main(int argc, char* argv[])
         return -1;
     }
 
+    // Initialize ImGui
+    IMGUI_CHECKVERSION();
+    ImGui::CreateContext();
+    ImGuiIO &io = ImGui::GetIO();
+    io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+
+    // Setup ImGui style
+    ImGui::StyleColorsDark();
+
+    // Setup Platform/Renderer backends (SDL3 + D3D11)
+    ImGui_ImplSDL3_InitForD3D(window);
+    ImGui_ImplDX11_Init(renderer->GetDevice(), renderer->GetContext());
+
     // Print usage
     std::cout << "\n=== FFmpeg D3D11VA Zero-Copy Decoder ===" << std::endl;
     std::cout << "Usage: H264_HW_Decoder.exe [video_file] [--vp]" << std::endl;
@@ -88,11 +104,15 @@ int main(int argc, char* argv[])
     // SDL3 event loop + decode-per-frame
     bool running = true;
     bool paused = false;
+    bool showUI = true;
     SDL_Event ev;
     while (running)
     {
         while (SDL_PollEvent(&ev))
         {
+            // Pass events to ImGui first
+            ImGui_ImplSDL3_ProcessEvent(&ev);
+
             if (ev.type == SDL_EVENT_QUIT)
                 running = false;
             else if (ev.type == SDL_EVENT_KEY_DOWN)
@@ -104,6 +124,7 @@ int main(int argc, char* argv[])
             }
         }
 
+        // Decode and render video frame
         if (!paused)
         {
             if (!decoder.DecodeOneFrame())
@@ -113,7 +134,46 @@ int main(int argc, char* argv[])
         {
             SDL_Delay(10); // avoid busy loop when paused
         }
+
+        // Start ImGui frame
+        ImGui_ImplDX11_NewFrame();
+        ImGui_ImplSDL3_NewFrame();
+        ImGui::NewFrame();
+
+        // Create UI overlay
+        if (showUI)
+        {
+            ImGui::SetNextWindowPos(ImVec2(10, 10), ImGuiCond_FirstUseEver);
+            ImGui::SetNextWindowSize(ImVec2(300, 150), ImGuiCond_FirstUseEver);
+            ImGui::Begin("Video Player Control", &showUI);
+            
+            ImGui::Text("FFmpeg D3D11VA Decoder");
+            ImGui::Separator();
+            ImGui::Text("File: %s", videoFile.c_str());
+            ImGui::Text("Mode: %s", renderMode == D3D11RendererFactory::Mode::VideoProcessor ? "Video Processor" : "Shader");
+            ImGui::Separator();
+            
+            if (ImGui::Button(paused ? "Resume (Space)" : "Pause (Space)"))
+                paused = !paused;
+            
+            ImGui::Text("Press ESC to exit");
+            ImGui::Text("Application average %.1f FPS", io.Framerate);
+            
+            ImGui::End();
+        }
+
+        // Render ImGui
+        ImGui::Render();
+        ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
+
+        // Present the frame (video + ImGui overlay)
+        renderer->Present();
     }
+
+    // Cleanup ImGui
+    ImGui_ImplDX11_Shutdown();
+    ImGui_ImplSDL3_Shutdown();
+    ImGui::DestroyContext();
 
     // Cleanup
     delete renderer;

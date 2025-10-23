@@ -14,6 +14,7 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 # 查找依赖
 find_package(FFMPEG REQUIRED)
 find_package(SDL3 CONFIG REQUIRED)
+find_package(imgui CONFIG REQUIRED)
 
 # 源文件 (重构版本)
 set(SOURCES_REFACTORED
@@ -51,6 +52,7 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     d3dcompiler.lib
     ${FFMPEG_LIBRARIES}
     SDL3::SDL3
+    imgui::imgui
 )
 
 target_link_directories(${PROJECT_NAME} PRIVATE

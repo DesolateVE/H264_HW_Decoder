@@ -63,8 +63,13 @@ public:
             inputViewCache[textureIndex] = inputView;
         }
 
-        // Process and render using cached view
-        ProcessAndPresent(inputViewCache[textureIndex].Get());
+        // Process to back buffer (don't present yet, ImGui will render on top)
+        ProcessVideoFrame(inputViewCache[textureIndex].Get());
+    }
+
+    void Present() override
+    {
+        swapChain->Present(1, 0);
     }
 
     ID3D11Device *GetDevice() override { return device.Get(); }
@@ -208,7 +213,7 @@ private:
         return true;
     }
 
-    void ProcessAndPresent(ID3D11VideoProcessorInputView *inputView)
+    void ProcessVideoFrame(ID3D11VideoProcessorInputView *inputView)
     {
         // Setup stream
         D3D11_VIDEO_PROCESSOR_STREAM stream = {};
@@ -229,7 +234,8 @@ private:
             return;
         }
 
-        // Present
-        swapChain->Present(1, 0);
+        // CRITICAL: Re-bind render target view for ImGui to draw on the same back buffer
+        // VideoProcessorBlt doesn't set render targets, so we must do it manually
+        context->OMSetRenderTargets(1, renderTargetView.GetAddressOf(), nullptr);
     }
 };

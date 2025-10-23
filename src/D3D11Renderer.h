@@ -15,6 +15,7 @@ public:
     virtual ~ID3D11RendererBase() = default;
     virtual bool Initialize(HWND hwnd, int videoWidth, int videoHeight) = 0;
     virtual void RenderFrame(ID3D11Texture2D *nv12Texture, int textureIndex) = 0;
+    virtual void Present() = 0;  // Separated Present call for ImGui overlay
     virtual ID3D11Device *GetDevice() = 0;
     virtual ID3D11DeviceContext *GetContext() = 0;
 };
