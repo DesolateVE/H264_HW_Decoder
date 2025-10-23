@@ -11,8 +11,9 @@ set(CMAKE_SUPPRESS_DEVELOPER_WARNINGS ON CACHE BOOL "" FORCE)
 # 设置输出目录
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 
-# 查找FFmpeg包
+# 查找依赖
 find_package(FFMPEG REQUIRED)
+find_package(SDL3 CONFIG REQUIRED)
 
 # 源文件 (重构版本)
 set(SOURCES_REFACTORED
@@ -49,6 +50,7 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     dxgi.lib
     d3dcompiler.lib
     ${FFMPEG_LIBRARIES}
+    SDL3::SDL3
 )
 
 target_link_directories(${PROJECT_NAME} PRIVATE

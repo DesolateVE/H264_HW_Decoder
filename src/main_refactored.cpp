@@ -1,23 +1,9 @@
 #include <Windows.h>
 #include <iostream>
 #include <string>
+#include <SDL3/SDL.h>
 #include "D3D11Renderer.h"
 #include "FFmpegDecoder.h"
-
-LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
-{
-    switch (uMsg)
-    {
-    case WM_DESTROY:
-        PostQuitMessage(0);
-        return 0;
-    case WM_KEYDOWN:
-        if (wParam == VK_ESCAPE)
-            PostQuitMessage(0);
-        return 0;
-    }
-    return DefWindowProc(hwnd, uMsg, wParam, lParam);
-}
 
 int main(int argc, char* argv[])
 {
@@ -38,33 +24,37 @@ int main(int argc, char* argv[])
         }
     }
 
-    // Create window
-    HINSTANCE hInstance = GetModuleHandle(nullptr);
-    
-    WNDCLASSEXA wc = {};
-    wc.cbSize = sizeof(WNDCLASSEXA);
-    wc.lpfnWndProc = WindowProc;
-    wc.hInstance = hInstance;
-    wc.lpszClassName = "D3D11VideoPlayer";
-    wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
-    RegisterClassExA(&wc);
-
-    int windowWidth = 1280;
-    int windowHeight = 720;
-    HWND hwnd = CreateWindowExA(
-        0, "D3D11VideoPlayer",
-        "FFmpeg D3D11VA Zero-Copy H.264 Decoder",
-        WS_OVERLAPPEDWINDOW,
-        CW_USEDEFAULT, CW_USEDEFAULT, windowWidth, windowHeight,
-        nullptr, nullptr, hInstance, nullptr);
-
-    if (!hwnd)
+    // Initialize SDL3 (window + events)
+    if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS))
     {
-        std::cerr << "Failed to create window" << std::endl;
+        std::cerr << "SDL_Init failed: " << SDL_GetError() << std::endl;
         return -1;
     }
 
-    ShowWindow(hwnd, SW_SHOW);
+    int windowWidth = 1280;
+    int windowHeight = 720;
+    SDL_Window *window = SDL_CreateWindow(
+        "FFmpeg D3D11VA Zero-Copy H.264 Decoder",
+        windowWidth, windowHeight,
+        SDL_WINDOW_RESIZABLE);
+
+    if (!window)
+    {
+        std::cerr << "Failed to create SDL window: " << SDL_GetError() << std::endl;
+        SDL_Quit();
+        return -1;
+    }
+
+    // Get native HWND from SDL window
+    SDL_PropertiesID props = SDL_GetWindowProperties(window);
+    HWND hwnd = (HWND)SDL_GetPointerProperty(props, SDL_PROP_WINDOW_WIN32_HWND_POINTER, nullptr);
+    if (!hwnd)
+    {
+        std::cerr << "Failed to get HWND from SDL window" << std::endl;
+        SDL_DestroyWindow(window);
+        SDL_Quit();
+        return -1;
+    }
 
     // Create renderer
     ID3D11RendererBase *renderer = D3D11RendererFactory::Create(renderMode);
@@ -95,11 +85,40 @@ int main(int argc, char* argv[])
     std::cout << "========================================\n"
               << std::endl;
 
-    // Decode and render
-    decoder.DecodeAndRender();
+    // SDL3 event loop + decode-per-frame
+    bool running = true;
+    bool paused = false;
+    SDL_Event ev;
+    while (running)
+    {
+        while (SDL_PollEvent(&ev))
+        {
+            if (ev.type == SDL_EVENT_QUIT)
+                running = false;
+            else if (ev.type == SDL_EVENT_KEY_DOWN)
+            {
+                if (ev.key.key == SDLK_ESCAPE)
+                    running = false;
+                else if (ev.key.key == SDLK_SPACE)
+                    paused = !paused;
+            }
+        }
+
+        if (!paused)
+        {
+            if (!decoder.DecodeOneFrame())
+                running = false; // EOF or error
+        }
+        else
+        {
+            SDL_Delay(10); // avoid busy loop when paused
+        }
+    }
 
     // Cleanup
     delete renderer;
+    SDL_DestroyWindow(window);
+    SDL_Quit();
 
     return 0;
 }

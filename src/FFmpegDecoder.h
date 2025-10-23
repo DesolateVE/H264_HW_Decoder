@@ -3,6 +3,7 @@
 #include <Windows.h>
 #include <iostream>
 #include <chrono>
+#include <SDL3/SDL.h>
 
 extern "C"
 {
@@ -22,6 +23,11 @@ private:
     AVBufferRef *hwDeviceCtx = nullptr;
     int videoStreamIndex = -1;
     ID3D11RendererBase *renderer = nullptr;
+    // Reusable decode objects and timing for SDL-driven loop
+    AVPacket *packet = nullptr;
+    AVFrame *frame = nullptr;
+    double frameDurationMs = 0.0;
+    std::chrono::high_resolution_clock::time_point lastFrameTime;
 
 public:
     bool Initialize(const char *filename, ID3D11RendererBase *render)
@@ -96,96 +102,88 @@ public:
             return false;
         }
 
-        std::cout << "Decoder initialized with D3D11VA hardware acceleration" << std::endl;
+        // Setup frame timing
+        AVStream *videoStream = formatCtx->streams[videoStreamIndex];
+        AVRational frameRate = videoStream->avg_frame_rate;
+        if (frameRate.num > 0 && frameRate.den > 0)
+            frameDurationMs = 1000.0 * frameRate.den / frameRate.num;
+        else
+            frameDurationMs = 1000.0 / 30.0;
+        lastFrameTime = std::chrono::high_resolution_clock::now();
+
+        // Allocate reusable packet/frame
+        packet = av_packet_alloc();
+        frame = av_frame_alloc();
+        if (!packet || !frame)
+        {
+            std::cerr << "Failed to allocate packet/frame" << std::endl;
+            return false;
+        }
+
+        std::cout << "Decoder initialized with D3D11VA hardware acceleration\n"
+                  << "Frame duration: " << frameDurationMs << " ms/frame" << std::endl;
+        return true;
+    }
+
+    // Decode and render at most one frame; return false on EOF/error
+    bool DecodeOneFrame()
+    {
+        if (!formatCtx || !codecCtx || !packet || !frame)
+            return false;
+
+        int r = av_read_frame(formatCtx, packet);
+        if (r < 0)
+        {
+            // EOF or error
+            return false;
+        }
+
+        if (packet->stream_index == videoStreamIndex)
+        {
+            if (avcodec_send_packet(codecCtx, packet) == 0)
+            {
+                if (avcodec_receive_frame(codecCtx, frame) == 0)
+                {
+                    if (frame->format == AV_PIX_FMT_D3D11)
+                    {
+                        ID3D11Texture2D *texture = (ID3D11Texture2D *)frame->data[0];
+                        int textureIndex = (int)(intptr_t)frame->data[1];
+                        renderer->RenderFrame(texture, textureIndex);
+
+                        // Pace to frame rate using SDL_Delay
+                        auto now = std::chrono::high_resolution_clock::now();
+                        auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - lastFrameTime).count();
+                        double delay = frameDurationMs - elapsed;
+                        if (delay > 0)
+                            SDL_Delay((Uint32)delay);
+                        lastFrameTime = std::chrono::high_resolution_clock::now();
+                    }
+                    av_frame_unref(frame);
+                }
+            }
+        }
+
+        av_packet_unref(packet);
         return true;
     }
 
     bool DecodeAndRender()
     {
-        AVPacket *packet = av_packet_alloc();
-        AVFrame *frame = av_frame_alloc();
-        bool ret = true;
-
-        // Get frame rate
-        AVStream *videoStream = formatCtx->streams[videoStreamIndex];
-        AVRational frameRate = videoStream->avg_frame_rate;
-
-        double frameDuration = 0.0;
-        if (frameRate.num > 0 && frameRate.den > 0)
+        // Backward-compatible blocking loop without Win32 message pump
+        while (DecodeOneFrame())
         {
-            frameDuration = 1000.0 * frameRate.den / frameRate.num;
+            // Let SDL update internal state; event handling is done in main
+            SDL_PumpEvents();
         }
-        else
-        {
-            frameDuration = 1000.0 / 30.0;
-        }
-
-        std::cout << "Frame rate: " << frameRate.num << "/" << frameRate.den
-                  << " fps (" << frameDuration << " ms/frame)" << std::endl;
-
-        auto lastFrameTime = std::chrono::high_resolution_clock::now();
-
-        while (av_read_frame(formatCtx, packet) >= 0)
-        {
-            if (packet->stream_index == videoStreamIndex)
-            {
-                if (avcodec_send_packet(codecCtx, packet) == 0)
-                {
-                    while (avcodec_receive_frame(codecCtx, frame) == 0)
-                    {
-                        if (frame->format == AV_PIX_FMT_D3D11)
-                        {
-                            // Extract D3D11 texture - zero copy!
-                            ID3D11Texture2D *texture = (ID3D11Texture2D *)frame->data[0];
-                            int textureIndex = (int)(intptr_t)frame->data[1];
-
-                            // Render
-                            renderer->RenderFrame(texture, textureIndex);
-
-                            // Frame rate control
-                            auto currentTime = std::chrono::high_resolution_clock::now();
-                            auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
-                                               currentTime - lastFrameTime)
-                                               .count();
-
-                            double sleepTime = frameDuration - elapsed;
-                            if (sleepTime > 0)
-                            {
-                                Sleep((DWORD)sleepTime);
-                            }
-
-                            lastFrameTime = std::chrono::high_resolution_clock::now();
-                        }
-                        av_frame_unref(frame);
-                    }
-                }
-            }
-            av_packet_unref(packet);
-
-            // Process Windows messages
-            MSG msg;
-            while (PeekMessage(&msg, nullptr, 0, 0, PM_REMOVE))
-            {
-                if (msg.message == WM_QUIT)
-                {
-                    ret = false;
-                    break;
-                }
-                TranslateMessage(&msg);
-                DispatchMessage(&msg);
-            }
-
-            if (!ret)
-                break;
-        }
-
-        av_frame_free(&frame);
-        av_packet_free(&packet);
-        return ret;
+        return true;
     }
 
     ~FFmpegD3D11Decoder()
     {
+        if (frame)
+            av_frame_free(&frame);
+        if (packet)
+            av_packet_free(&packet);
         if (codecCtx)
             avcodec_free_context(&codecCtx);
         if (formatCtx)
